@@ -76,13 +76,16 @@ export class LiveService {
         config: {
           responseModalities: [Modality.AUDIO],
           systemInstruction: SYSTEM_INSTRUCTION,
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }, // Using 'Kore' for a smooth, pleasant voice
+          },
           tools: [{ functionDeclarations: [generateOutfitTool, generateSlideshowTool, downloadAllImagesTool] }],
         },
         callbacks: {
           onopen: this.handleOpen.bind(this, stream),
           onmessage: this.handleMessage.bind(this),
           onclose: this.handleClose.bind(this),
-          onerror: (e) => this.callbacks.onError(new Error('Live API Error')),
+          onerror: (e) => this.callbacks.onError(new Error('Live API Error: ' + e.message)),
         },
       });
       
@@ -102,7 +105,9 @@ export class LiveService {
     if (!this.inputAudioContext) return;
 
     this.mediaStreamSource = this.inputAudioContext.createMediaStreamSource(stream);
-    this.scriptProcessor = this.inputAudioContext.createScriptProcessor(4096, 1, 1);
+    // 2048 buffer size = ~128ms latency at 16kHz, which is a good balance for VAD and stability.
+    // Too small (1024) can cause glitches on some devices; too large (4096) delays VAD.
+    this.scriptProcessor = this.inputAudioContext.createScriptProcessor(2048, 1, 1);
 
     this.scriptProcessor.onaudioprocess = (e) => {
       if (!this.isConnected || !this.sessionPromise) return;
@@ -133,37 +138,40 @@ export class LiveService {
   }
 
   private async handleMessage(message: LiveServerMessage) {
-    // Handle Interruption
-    if (message.serverContent?.interrupted) {
-      this.callbacks.onInterrupted();
-      return;
-    }
-
-    // Handle Audio
-    const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
-    if (base64Audio && this.outputAudioContext) {
-      const pcmData = decode(base64Audio);
-      const audioBuffer = pcmToAudioBuffer(pcmData, this.outputAudioContext, AUDIO_OUTPUT_SAMPLE_RATE);
-      this.callbacks.onAudioData(audioBuffer);
-    }
-
-    // Handle Tool Calls
-    if (message.toolCall) {
-      for (const call of message.toolCall.functionCalls) {
-         // Execute the client-side logic for the tool
-         const result = await this.callbacks.onToolCall(call.name, call.args);
-         
-         // Send response back to model
-         this.sessionPromise?.then((session) => {
-           session.sendToolResponse({
-             functionResponses: {
-               id: call.id,
-               name: call.name,
-               response: { result: result || 'OK' },
-             },
-           });
-         });
-      }
+    try {
+        // Handle Interruption
+        if (message.serverContent?.interrupted) {
+          this.callbacks.onInterrupted();
+          return;
+        }
+    
+        // Handle Audio
+        const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+        if (base64Audio && this.outputAudioContext) {
+          const pcmData = decode(base64Audio);
+          const audioBuffer = pcmToAudioBuffer(pcmData, this.outputAudioContext, AUDIO_OUTPUT_SAMPLE_RATE);
+          this.callbacks.onAudioData(audioBuffer);
+        }
+    
+        // Handle Tool Calls
+        if (message.toolCall) {
+          for (const call of message.toolCall.functionCalls) {
+             console.log(`Executing tool: ${call.name}`);
+             const result = await this.callbacks.onToolCall(call.name, call.args);
+             
+             this.sessionPromise?.then((session) => {
+               session.sendToolResponse({
+                 functionResponses: {
+                   id: call.id,
+                   name: call.name,
+                   response: { result: result || 'OK' },
+                 },
+               });
+             });
+          }
+        }
+    } catch (e) {
+        console.error("Error handling message:", e);
     }
   }
 
@@ -174,13 +182,7 @@ export class LiveService {
 
   async disconnect() {
     this.isConnected = false;
-    // Note: The SDK doesn't expose a direct close method on the session object easily
-    // We rely on breaking the input stream and letting the server timeout or
-    // explicitly closing audio contexts.
-    // Ideally, we would call session.close() if available in the promise result.
-    if(this.sessionPromise) {
-        // Just stop sending data.
-    }
+    // Effectively stop sending data
     this.cleanup();
   }
 

@@ -46,6 +46,8 @@ const App: React.FC = () => {
 
   // Handle Interruption: Stop all playing audio
   const handleInterruption = useCallback(() => {
+     if (!audioContextRef.current) return;
+     
      // Stop all currently playing sources
      activeAudioSourcesRef.current.forEach(source => {
         try {
@@ -56,8 +58,8 @@ const App: React.FC = () => {
      });
      activeAudioSourcesRef.current.clear();
      
-     // Reset timing cursor
-     nextAudioStartTimeRef.current = 0;
+     // Reset timing cursor to current time to ensure fresh start for next phrase
+     nextAudioStartTimeRef.current = audioContextRef.current.currentTime;
      setIsAiSpeaking(false);
   }, []);
 
@@ -72,9 +74,11 @@ const App: React.FC = () => {
 
     // Schedule playback
     const currentTime = ctx.currentTime;
+    
     // If next start time is behind current time (due to delay or interruption reset), snap to now
+    // We add a tiny buffer (0.05s) to prevent immediate cutoff glitching if scheduling is too tight
     if (nextAudioStartTimeRef.current < currentTime) {
-        nextAudioStartTimeRef.current = currentTime;
+        nextAudioStartTimeRef.current = currentTime + 0.05;
     }
     
     const startTime = nextAudioStartTimeRef.current;
@@ -90,7 +94,7 @@ const App: React.FC = () => {
         activeAudioSourcesRef.current.delete(source);
         // If current time is close to next start time, we might still be speaking
         // This is a rough approximation for UI
-        if (activeAudioSourcesRef.current.size === 0 && ctx.currentTime >= nextAudioStartTimeRef.current - 0.1) {
+        if (activeAudioSourcesRef.current.size === 0 && ctx.currentTime >= nextAudioStartTimeRef.current - 0.2) {
             setIsAiSpeaking(false);
         }
     };
@@ -183,22 +187,29 @@ const App: React.FC = () => {
     setConnectionState(ConnectionState.DISCONNECTED);
     setIsAiSpeaking(false);
     nextAudioStartTimeRef.current = 0;
-    setImageHistory([]); // Optional: Clear history on session end? Or keep it? Keeping it cleared for new session.
+    setImageHistory([]); 
     setIsSlideshowOpen(false);
   }, []);
 
   // Start Session
   const startSession = async () => {
     try {
+      if (audioContextRef.current?.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
+
       setConnectionState(ConnectionState.CONNECTING);
       setError(null);
-      setImageHistory([]); // Clear previous session history
+      setImageHistory([]); 
 
-      // 1. Get User Media
+      // 1. Get User Media with Echo Cancellation (Critical for VAD)
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           channelCount: 1,
           sampleRate: 16000,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
         },
         video: {
             width: { ideal: 1280 },
@@ -210,7 +221,7 @@ const App: React.FC = () => {
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        videoRef.current.muted = true; // Local playback muted to avoid echo
+        videoRef.current.muted = true; // Local playback muted to avoid echo loop
         await videoRef.current.play();
       }
 
@@ -230,7 +241,7 @@ const App: React.FC = () => {
       liveServiceRef.current = liveService;
       await liveService.connect(stream);
 
-      // 3. Start Video Frame Loop (Low FPS for context)
+      // 3. Start Video Frame Loop
       videoIntervalRef.current = window.setInterval(async () => {
          if (videoRef.current && liveServiceRef.current) {
             try {
@@ -274,7 +285,7 @@ const App: React.FC = () => {
       <div className="absolute top-0 left-0 right-0 p-6 flex justify-between items-start pointer-events-none z-10">
         <div>
            <h1 className="text-2xl font-bold tracking-tight">StyleVision</h1>
-           <p className="text-sm text-neutral-400">AI Fashion Advisor</p>
+           <p className="text-sm text-neutral-400">AI Fashion Mirror</p>
         </div>
         
         {/* Connection Status Indicator */}
@@ -342,7 +353,7 @@ const App: React.FC = () => {
          
          <div className="flex flex-col items-center gap-1">
              <p className="text-xs text-neutral-400 font-medium tracking-wide">
-                 {connectionState === ConnectionState.CONNECTED ? 'Tap to Stop' : 'Tap to Start Advisor'}
+                 {connectionState === ConnectionState.CONNECTED ? 'Tap to Stop' : 'Tap to Start Mirror'}
              </p>
              <p className="text-[10px] text-white/30 font-light mt-1">
                 Created with 💖 by <a href="https://akshatbindal.cc.cc" target="_blank" rel="noopener noreferrer" className="hover:text-white/60 transition-colors underline decoration-white/20">Akshat Bindal</a>

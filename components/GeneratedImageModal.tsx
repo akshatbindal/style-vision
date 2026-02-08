@@ -7,13 +7,13 @@ interface GeneratedImageModalProps {
 }
 
 const GeneratedImageModal: React.FC<GeneratedImageModalProps> = ({ image, onClose }) => {
-  // Auto-close the modal after 7 seconds
+  // Auto-close the modal after 5 seconds
   useEffect(() => {
     if (!image) return;
 
     const timer = setTimeout(() => {
       onClose();
-    }, 7000);
+    }, 5000);
 
     return () => clearTimeout(timer);
   }, [image, onClose]);
