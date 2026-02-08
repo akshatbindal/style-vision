@@ -1,0 +1,8 @@
+{
+  "name": "StyleVision - AI Fashion Advisor",
+  "description": "A real-time fashion advisor that sees what you wear, gives vocal feedback, and generates new looks on the fly using Gemini Live and Nano Banana models.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
