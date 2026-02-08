@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { GeneratedImage } from '../types';
 
 interface GeneratedImageModalProps {
@@ -7,6 +7,17 @@ interface GeneratedImageModalProps {
 }
 
 const GeneratedImageModal: React.FC<GeneratedImageModalProps> = ({ image, onClose }) => {
+  // Auto-close the modal after 7 seconds
+  useEffect(() => {
+    if (!image) return;
+
+    const timer = setTimeout(() => {
+      onClose();
+    }, 7000);
+
+    return () => clearTimeout(timer);
+  }, [image, onClose]);
+
   if (!image) return null;
 
   const handleSave = () => {
@@ -51,12 +62,23 @@ const GeneratedImageModal: React.FC<GeneratedImageModalProps> = ({ image, onClos
              alt="Generated Outfit" 
              className="w-full h-full object-cover"
            />
-           <div className="absolute bottom-0 inset-x-0 bg-gradient-to-t from-black/90 to-transparent p-6 pt-12">
-              <p className="text-white text-sm font-medium opacity-90">
-                <span className="text-purple-400 font-bold uppercase text-xs tracking-wider block mb-1">Generated Look</span>
-                {image.prompt}
-              </p>
+           
+           {/* Time remaining indicator */}
+           <div className="absolute top-0 left-0 w-full h-1 bg-white/20 z-20">
+             <div 
+                className="h-full bg-purple-500" 
+                style={{ 
+                    width: '100%',
+                    animation: 'shrink 5s linear forwards' 
+                }} 
+             />
            </div>
+           <style>{`
+             @keyframes shrink {
+               from { width: 100%; }
+               to { width: 0%; }
+             }
+           `}</style>
         </div>
       </div>
     </div>

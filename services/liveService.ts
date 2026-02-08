@@ -18,12 +18,33 @@ const generateOutfitTool: FunctionDeclaration = {
   },
 };
 
+// Define the tool for slideshow
+const generateSlideshowTool: FunctionDeclaration = {
+  name: 'generate_slideshow',
+  description: 'Triggers a slideshow playback of the previously generated outfits.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {}, // No arguments needed
+  },
+};
+
+// Define the tool for downloading images
+const downloadAllImagesTool: FunctionDeclaration = {
+  name: 'download_all_images',
+  description: 'Downloads all the outfit images generated during the session to the user\'s device.',
+  parameters: {
+    type: Type.OBJECT,
+    properties: {}, // No arguments needed
+  },
+};
+
 interface LiveServiceCallbacks {
   onConnect: () => void;
   onDisconnect: () => void;
   onError: (error: Error) => void;
   onAudioData: (buffer: AudioBuffer) => void;
   onToolCall: (name: string, args: Record<string, any>) => Promise<any>;
+  onInterrupted: () => void;
 }
 
 export class LiveService {
@@ -55,7 +76,7 @@ export class LiveService {
         config: {
           responseModalities: [Modality.AUDIO],
           systemInstruction: SYSTEM_INSTRUCTION,
-          tools: [{ functionDeclarations: [generateOutfitTool] }],
+          tools: [{ functionDeclarations: [generateOutfitTool, generateSlideshowTool, downloadAllImagesTool] }],
         },
         callbacks: {
           onopen: this.handleOpen.bind(this, stream),
@@ -112,6 +133,12 @@ export class LiveService {
   }
 
   private async handleMessage(message: LiveServerMessage) {
+    // Handle Interruption
+    if (message.serverContent?.interrupted) {
+      this.callbacks.onInterrupted();
+      return;
+    }
+
     // Handle Audio
     const base64Audio = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
     if (base64Audio && this.outputAudioContext) {
@@ -123,21 +150,19 @@ export class LiveService {
     // Handle Tool Calls
     if (message.toolCall) {
       for (const call of message.toolCall.functionCalls) {
-        if (call.name === 'generate_outfit') {
-          // Execute the client-side logic for the tool
-          const result = await this.callbacks.onToolCall(call.name, call.args);
-          
-          // Send response back to model
-          this.sessionPromise?.then((session) => {
-            session.sendToolResponse({
-              functionResponses: {
-                id: call.id,
-                name: call.name,
-                response: { result: 'Image generated successfully' },
-              },
-            });
-          });
-        }
+         // Execute the client-side logic for the tool
+         const result = await this.callbacks.onToolCall(call.name, call.args);
+         
+         // Send response back to model
+         this.sessionPromise?.then((session) => {
+           session.sendToolResponse({
+             functionResponses: {
+               id: call.id,
+               name: call.name,
+               response: { result: result || 'OK' },
+             },
+           });
+         });
       }
     }
   }
